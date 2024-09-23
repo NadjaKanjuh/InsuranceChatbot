@@ -5,15 +5,17 @@ import re
 import gensim.downloader
 from nltk.corpus import stopwords
 from sklearn.model_selection import train_test_split
-from sklearn.utils import class_weight
 import nltk
 nltk.download('punkt')
+import tensorflow as tf
 
-from keras.preprocessing.sequence import pad_sequences
-from keras.models import Model
-from keras.layers import Input, Embedding, LSTM, Lambda
-import keras.backend as K
-from tensorflow.keras.optimizers import Adadelta
+from keras_preprocessing.sequence import pad_sequences
+from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.layers import Input, Embedding, Lambda
+import tensorflow.python.keras.backend as K
+# from keras.src.layers import LSTM
+from tensorflow.python.keras.layers.recurrent import LSTM
+
 
 
 
@@ -94,9 +96,7 @@ class HighPrecisionService:
 
         self.__build_and_load_model()
 
-
     def __build_vocabulary(self):
-
         self.vocabulary = dict()
         self.inverse_vocabulary = ['<unk>']  # '<unk>' will never be used, it is only a placeholder for the [0, 0, ....0] embedding
 
@@ -110,7 +110,7 @@ class HighPrecisionService:
                     for word in text_to_word_list(row[question]):
 
                         # Check for unwanted words
-                        if word in self.stops and word not in self.word2vec.vocab:
+                        if word in self.stops and word not in self.word2vec.key_to_index:
                             continue
 
                         if word not in self.vocabulary:
@@ -125,7 +125,7 @@ class HighPrecisionService:
 
     def __exponent_neg_manhattan_distance(self, left, right):
         # ''' Helper function for the similarity estimate of the LSTMs outputs'''
-        return K.exp(-K.sum(K.abs(left - right), axis=1, keepdims=True))
+        return tf.exp(-K.sum(K.abs(left - right), axis=1, keepdims=True))
 
     def __build_and_load_model(self):
         n_hidden = 50
@@ -167,13 +167,11 @@ class HighPrecisionService:
 
         return malstm
 
-
     def __question_to_sequence(self, question):
-
         q2n = [] #question to number representation
 
         for word in text_to_word_list(question):
-            if word in self.stops and word not in self.word2vec.vocab:
+            if word in self.stops and word not in self.word2vec.key_to_index:
                 continue
 
             if word in self.vocabulary:
@@ -184,21 +182,26 @@ class HighPrecisionService:
         return q2n
 
     def get_most_similar_question(self, questions, question):
+        # Repeat the question for comparison
+        asked_question_repeated = np.repeat([question], len(questions), axis=0)
 
-        asked_question_repeated = np.repeat(question, len(questions))
+        # Convert both questions and question list to sequences
         asked_question_sequence = [self.__question_to_sequence(q) for q in asked_question_repeated]
         questions_sequence = [self.__question_to_sequence(q) for q in questions]
 
-        # obezbedjujem istu duzinu sekvenci
+        # Ensure sequences are the same length
         asked_question_sequence = pad_sequences(asked_question_sequence, maxlen=self.max_seq_length)
         questions_sequence = pad_sequences(questions_sequence, maxlen=self.max_seq_length)
 
-        predictions = self.model.predict([asked_question_sequence, questions_sequence]).flatten()
-        predictions_sorted = np.argsort(predictions, axis=0)
-        top_prediction_index = predictions_sorted[-1]
+        # Make sure to cast the inputs to numpy arrays or tensors
+        asked_question_sequence = np.array(asked_question_sequence)
+        questions_sequence = np.array(questions_sequence)
+
+        # Predictions
+        predictions = self.model.predict([asked_question_sequence, questions_sequence])
+
+        # Flatten the predictions and find the most similar question
+        predictions_flattened = predictions.flatten()
+        top_prediction_index = np.argmax(predictions_flattened)  # Get the index of the highest score
         top_prediction = questions[top_prediction_index]
-
         return top_prediction
-
-
-
